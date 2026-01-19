@@ -1,0 +1,118 @@
+#include "redismodule.h"
+#include <leveldb/c.h>
+#include <stdlib.h>
+#include <string.h>
+
+// LevelDB 实例
+static leveldb_t *db;
+static leveldb_options_t *options;
+static char *err = NULL;
+
+// 打开数据库
+int open_db(const char *path) {
+    options = leveldb_options_create();
+    leveldb_options_set_create_if_missing(options, 1);
+    db = leveldb_open(options, path, &err);
+    if (err != NULL) {
+        return REDISMODULE_ERR;
+    }
+    return REDISMODULE_OK;
+}
+
+// leveldb.put key value
+int LevelDBPut_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 3) return RedisModule_WrongArity(ctx);
+
+    size_t key_len, val_len;
+    const char *key = RedisModule_StringPtrLen(argv[1], &key_len);
+    const char *val = RedisModule_StringPtrLen(argv[2], &val_len);
+
+    leveldb_writeoptions_t *write_options = leveldb_writeoptions_create();
+    leveldb_put(db, write_options, key, key_len, val, val_len, &err);
+    leveldb_writeoptions_destroy(write_options);
+
+    if (err != NULL) {
+        RedisModule_ReplyWithError(ctx, err);
+        free(err);
+        err = NULL;
+        return REDISMODULE_ERR;
+    }
+
+    RedisModule_ReplyWithSimpleString(ctx, "OK");
+    return REDISMODULE_OK;
+}
+
+// leveldb.get key
+int LevelDBGet_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 2) return RedisModule_WrongArity(ctx);
+
+    size_t key_len;
+    const char *key = RedisModule_StringPtrLen(argv[1], &key_len);
+
+    leveldb_readoptions_t *read_options = leveldb_readoptions_create();
+    size_t val_len;
+    char *val = leveldb_get(db, read_options, key, key_len, &val_len, &err);
+    leveldb_readoptions_destroy(read_options);
+
+    if (err != NULL) {
+        RedisModule_ReplyWithError(ctx, err);
+        free(err);
+        err = NULL;
+        return REDISMODULE_ERR;
+    }
+
+    if (val == NULL) {
+        RedisModule_ReplyWithNull(ctx);
+    } else {
+        RedisModule_ReplyWithStringBuffer(ctx, val, val_len);
+        free(val);
+    }
+
+    return REDISMODULE_OK;
+}
+
+// leveldb.del key
+int LevelDBDel_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 2) return RedisModule_WrongArity(ctx);
+
+    size_t key_len;
+    const char *key = RedisModule_StringPtrLen(argv[1], &key_len);
+
+    leveldb_writeoptions_t *write_options = leveldb_writeoptions_create();
+    leveldb_delete(db, write_options, key, key_len, &err);
+    leveldb_writeoptions_destroy(write_options);
+
+    if (err != NULL) {
+        RedisModule_ReplyWithError(ctx, err);
+        free(err);
+        err = NULL;
+        return REDISMODULE_ERR;
+    }
+
+    RedisModule_ReplyWithSimpleString(ctx, "OK");
+    return REDISMODULE_OK;
+}
+
+// RedisModule 初始化
+int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (RedisModule_Init(ctx, "leveldb", 1, REDISMODULE_APIVER_1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (open_db("leveldb_data") != REDISMODULE_OK) {
+        RedisModule_Log(ctx, "warning", "Failed to open LevelDB");
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "leveldb.put", LevelDBPut_RedisCommand, "write", 1, 1, 1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "leveldb.get", LevelDBGet_RedisCommand, "readonly", 1, 1, 1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "leveldb.del", LevelDBDel_RedisCommand, "write", 1, 1, 1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    RedisModule_Log(ctx, "notice", "LevelDB module loaded!");
+    return REDISMODULE_OK;
+}
+
