@@ -98,7 +98,26 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_Init(ctx, "leveldb", 1, REDISMODULE_APIVER_1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (open_db("leveldb_data") != REDISMODULE_OK) {
+    char db_path[512];
+    /* 1️⃣ 解析模块参数：数据库根目录 */
+    if (argc >= 1) {
+        size_t len;
+        const char *path =
+            RedisModule_StringPtrLen(argv[0], &len);
+
+        if (len >= sizeof(db_path)) {
+            RedisModule_Log(ctx, "warning",
+                "DB path too long");
+            return REDISMODULE_ERR;
+        }
+
+        memcpy(db_path, path, len);
+        db_path[len] = '\0';
+    } else {
+        strcpy(db_path, "leveldb_data");
+    }
+
+    if (open_db(db_path) != REDISMODULE_OK) {
         RedisModule_Log(ctx, "warning", "Failed to open LevelDB");
         return REDISMODULE_ERR;
     }
