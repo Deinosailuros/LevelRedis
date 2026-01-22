@@ -93,6 +93,83 @@ int LevelDBDel_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     return REDISMODULE_OK;
 }
 
+int LevelDBBatch_RedisCommand(
+    RedisModuleCtx *ctx,
+    RedisModuleString **argv,
+    int argc
+) {
+    if (argc < 3) {
+        return RedisModule_WrongArity(ctx);
+    }
+
+    leveldb_writebatch_t *batch = leveldb_writebatch_create();
+
+    int i = 1;
+    while (i < argc) {
+        size_t op_len;
+        const char *op =
+            RedisModule_StringPtrLen(argv[i], &op_len);
+
+        if (strcasecmp(op, "put") == 0) {
+            if (i + 2 >= argc) {
+                leveldb_writebatch_destroy(batch);
+                return RedisModule_ReplyWithError(
+                    ctx, "ERR batch put needs key value");
+            }
+
+            size_t key_len, val_len;
+            const char *key =
+                RedisModule_StringPtrLen(argv[i + 1], &key_len);
+            const char *val =
+                RedisModule_StringPtrLen(argv[i + 2], &val_len);
+
+            leveldb_writebatch_put(
+                batch, key, key_len, val, val_len);
+
+            i += 3;
+        }
+        else if (strcasecmp(op, "del") == 0) {
+            if (i + 1 >= argc) {
+                leveldb_writebatch_destroy(batch);
+                return RedisModule_ReplyWithError(
+                    ctx, "ERR batch del needs key");
+            }
+
+            size_t key_len;
+            const char *key =
+                RedisModule_StringPtrLen(argv[i + 1], &key_len);
+
+            leveldb_writebatch_delete(batch, key, key_len);
+
+            i += 2;
+        }
+        else {
+            leveldb_writebatch_destroy(batch);
+            return RedisModule_ReplyWithError(
+                ctx, "ERR unknown batch operation");
+        }
+    }
+
+    leveldb_writeoptions_t *wopt =
+        leveldb_writeoptions_create();
+
+    leveldb_write(db, wopt, batch, &err);
+
+    leveldb_writeoptions_destroy(wopt);
+    leveldb_writebatch_destroy(batch);
+
+    if (err) {
+        RedisModule_ReplyWithError(ctx, err);
+        free(err);
+        err = NULL;
+        return REDISMODULE_ERR;
+    }
+
+    RedisModule_ReplyWithSimpleString(ctx, "OK");
+    return REDISMODULE_OK;
+}
+
+
 // RedisModule 初始化
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (RedisModule_Init(ctx, "leveldb", 1, REDISMODULE_APIVER_1) == REDISMODULE_ERR)
@@ -129,6 +206,9 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx, "leveldb.del", LevelDBDel_RedisCommand, "write", 1, 1, 1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "leveldb.batch", LevelDBBatch_RedisCommand, "write", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     RedisModule_Log(ctx, "notice", "LevelDB module loaded!");
