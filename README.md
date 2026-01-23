@@ -10,7 +10,7 @@ docker build -t levelredis:v1 .
 # start server
 
 ```
-docker run --rm -it -p 12080:6379 -v $(pwd)/data:/opt/levelredis/data levelredis:v1
+docker run --rm -it -p 6379:6379 -v $(pwd)/data:/opt/levelredis/data levelredis:v1
 ```
 
 # use leveldb as redis
