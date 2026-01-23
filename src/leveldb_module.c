@@ -101,6 +101,8 @@ int LevelDBBatch_RedisCommand(
     if (argc < 3) {
         return RedisModule_WrongArity(ctx);
     }
+    if (!db)
+        return RedisModule_ReplyWithError(ctx, "ERR db not available");
 
     leveldb_writebatch_t *batch = leveldb_writebatch_create();
 
